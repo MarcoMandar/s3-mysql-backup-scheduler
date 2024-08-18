@@ -3,7 +3,7 @@ dotenv.config();
 
 import mysql from "mysql2/promise";
 import fs from "fs";
-import { S3 } from "aws-sdk";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { CronJob } from "cron";
 import path from "path";
 
@@ -17,10 +17,12 @@ const dbConfig = {
 };
 
 // AWS S3 client configuration
-const s3 = new S3({
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+const s3Client = new S3Client({
   region: process.env.AWS_S3_REGION,
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+  },
 });
 
 // Function to perform the backup
@@ -58,25 +60,20 @@ const backupDatabase = async (): Promise<void> => {
 
     // Upload the backup file to S3
     const fileStream = fs.createReadStream(backupFilePath);
-    const uploadParams: S3.PutObjectRequest = {
+    const uploadParams = {
       Bucket: process.env.AWS_S3_BUCKET!,
       Key: backupFilename,
       Body: fileStream,
     };
 
-    s3.upload(
-      uploadParams,
-      (err: Error | null, data: S3.ManagedUpload.SendData) => {
-        if (err) {
-          console.error("Error uploading to S3:", err);
-        } else {
-          console.log(`Backup successfully uploaded to S3: ${data.Location}`);
+    const command = new PutObjectCommand(uploadParams);
+    const data = await s3Client.send(command);
 
-          // Delete the local backup file after upload
-          fs.unlinkSync(backupFilePath);
-        }
-      }
-    );
+    const s3Url = `https://${process.env.AWS_S3_BUCKET}.s3.${process.env.AWS_S3_REGION}.amazonaws.com/${backupFilename}`;
+    console.log(`Backup successfully uploaded to S3: ${s3Url}`);
+
+    // Delete the local backup file after upload
+    fs.unlinkSync(backupFilePath);
 
     // Close the database connection
     await connection.end();

@@ -39,7 +39,7 @@ const dotenv = __importStar(require("dotenv"));
 dotenv.config();
 const promise_1 = __importDefault(require("mysql2/promise"));
 const fs_1 = __importDefault(require("fs"));
-const aws_sdk_1 = require("aws-sdk");
+const client_s3_1 = require("@aws-sdk/client-s3");
 const cron_1 = require("cron");
 const path_1 = __importDefault(require("path"));
 // MySQL connection configuration
@@ -51,10 +51,12 @@ const dbConfig = {
     port: Number(process.env.DB_PORT),
 };
 // AWS S3 client configuration
-const s3 = new aws_sdk_1.S3({
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+const s3Client = new client_s3_1.S3Client({
     region: process.env.AWS_S3_REGION,
+    credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+    },
 });
 // Function to perform the backup
 const backupDatabase = () => __awaiter(void 0, void 0, void 0, function* () {
@@ -87,16 +89,12 @@ const backupDatabase = () => __awaiter(void 0, void 0, void 0, function* () {
             Key: backupFilename,
             Body: fileStream,
         };
-        s3.upload(uploadParams, (err, data) => {
-            if (err) {
-                console.error("Error uploading to S3:", err);
-            }
-            else {
-                console.log(`Backup successfully uploaded to S3: ${data.Location}`);
-                // Delete the local backup file after upload
-                fs_1.default.unlinkSync(backupFilePath);
-            }
-        });
+        const command = new client_s3_1.PutObjectCommand(uploadParams);
+        const data = yield s3Client.send(command);
+        const s3Url = `https://${process.env.AWS_S3_BUCKET}.s3.${process.env.AWS_S3_REGION}.amazonaws.com/${backupFilename}`;
+        console.log(`Backup successfully uploaded to S3: ${s3Url}`);
+        // Delete the local backup file after upload
+        fs_1.default.unlinkSync(backupFilePath);
         // Close the database connection
         yield connection.end();
     }
